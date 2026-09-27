@@ -468,6 +468,19 @@ SELECT row_to_json(x) FROM (
 		 WHERE ip.rental_id=r.id) AS claims,
 		(SELECT json_agg(json_build_object('hours', e.hours, 'fee', e.fee, 'created_at', e.created_at)
 		  ORDER BY e.id) FROM extensions e WHERE e.rental_id=r.id) AS extensions,
+		(SELECT json_agg(json_build_object(
+			'id', rf.id, 'status', rf.status, 'reason', rf.reason,
+			'equipment_type', ri.equipment_type,
+			'old_size', rf.old_size, 'new_size', rf.new_size,
+			'charge_fee', rf.charge_fee, 'compensate_amount', rf.compensate_amount,
+			'delay_minutes', rf.delay_minutes, 'shift_applied', rf.shift_applied,
+			'rights_impact', rf.rights_impact,
+			'created_at', to_char(rf.created_at,'MM-DD HH24:MI'),
+			'processed_at', to_char(rf.processed_at,'MM-DD HH24:MI'),
+			'reconfirmed_at', to_char(rf.reconfirmed_at,'MM-DD HH24:MI')
+		  ) ORDER BY rf.id DESC) FROM refits rf
+		  JOIN rental_items ri ON ri.id=rf.rental_item_id
+		  WHERE rf.rental_id=r.id) AS refits,
 		(SELECT row_to_json(f) FROM (SELECT rating, text, created_at FROM feedback WHERE rental_id=r.id LIMIT 1) f) AS feedback,
 		(SELECT p.name FROM insurance_policies ip JOIN insurance_products p ON p.id=ip.product_id
 		 WHERE ip.rental_id=r.id LIMIT 1) AS insurance_name,

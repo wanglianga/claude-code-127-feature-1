@@ -43,6 +43,9 @@ func (s *Server) registerRoutes() {
 	s.add("POST", "/api/counter/scan", authCounter(s.scanItem))
 	s.add("POST", "/api/counter/checkout", authCounter(s.checkout))
 	s.add("POST", "/api/counter/exchanges/{id}/process", authCounter(s.processExchange))
+	s.add("GET", "/api/counter/refits", authCounter(s.counterRefits))
+	s.add("GET", "/api/counter/refits/{id}/recommend", authCounter(s.recommendRefit))
+	s.add("POST", "/api/counter/refits/{id}/process", authCounter(s.processRefit))
 	s.add("POST", "/api/counter/damages/{id}/assess", authCounter(s.assessDuringRental))
 	s.add("POST", "/api/counter/returns/{rid}/inspect", authCounter(s.inspectReturnItem))
 	s.add("POST", "/api/counter/returns/{rid}/finish", authCounter(s.finishReturn))
@@ -50,6 +53,9 @@ func (s *Server) registerRoutes() {
 	// 教练
 	s.add("GET", "/api/coach/courses", authCoach(s.coachCourses))
 	s.add("POST", "/api/coach/fit-check", authCoach(s.fitCheck))
+	s.add("POST", "/api/coach/refits", authCoach(s.createRefit))
+	s.add("GET", "/api/coach/refits", authCoach(s.coachRefits))
+	s.add("POST", "/api/coach/refits/{id}/confirm", authCoach(s.confirmRefit))
 
 	// 维修间
 	s.add("GET", "/api/repair/orders", authRepair(s.repairOrders))

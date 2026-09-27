@@ -6,6 +6,7 @@ import RentalDetail from '../components/RentalDetail.jsx'
 export default function CounterPage({ page, go }) {
   if (page === 'checkout') return <Checkout />
   if (page === 'exchanges') return <Exchanges />
+  if (page === 'refits') return <Refits />
   if (page === 'returns') return <Returns />
   return <QueueBoard />
 }
@@ -197,6 +198,12 @@ function ExchangeCard({ ticket, onDone, onOpen }) {
       <div style={{ margin: '6px 0' }}>{ticket.guest_name} {ticket.guest_phone} · {ticket.course_name || '自由滑'}</div>
       <div className="small muted">申请时间 {ticket.created_time}</div>
       {exs.length === 0 && <div className="alert warn" style={{ marginTop: 8 }}>该票没有待处理换码申请（可能已处理）</div>}
+      {(ticket.refits || []).map(rf => (
+        <div key={rf.refit_id} className="alert warn" style={{ marginTop: 8 }}>
+          <b>🔁 课前安全重配：{TYPE_LABEL[rf.equipment_type]}（当前 {rf.old_size}）</b>
+          <div className="small">原因:{rf.reason} · 请到「课前重配」页按库存推荐换发</div>
+        </div>
+      ))}
       {exs.map(ex => (
         <div key={ex.exchange_id} className="alert info" style={{ marginTop: 8 }}>
           <b>{TYPE_LABEL[ex.equipment_type]} 换码：{ex.current_label} → {ex.new_size || '同码换一件'}</b>
@@ -234,6 +241,87 @@ function ExchangeActions({ onProcess }) {
       {rejecting && <div className="inline" style={{ marginTop: 6 }}>
         <input placeholder="驳回原因" value={note} onChange={e => setNote(e.target.value)} style={{ width: 200 }} />
         <button className="btn sm danger" onClick={() => onProcess({ approve: false, note })}>确认驳回</button>
+      </div>}
+    </div>
+  )
+}
+
+// ---------- 课前重配（教练发起的安全重配，按库存推荐替换尺码） ----------
+function Refits() {
+  const [list, setList] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const load = useCallback(async () => setList(await api('GET', '/counter/refits')), [])
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [])
+  return (
+    <div>
+      <h2 style={{ fontSize: 18 }}>课前尺码重配</h2>
+      <p className="muted small">教练课前发现尺码安全隐患（如初学者雪鞋过松）发起的重配。系统按游客体测与当前库存推荐替换尺码；换发免费，游客已获补偿，换发后由教练复核。</p>
+      {!list ? <Loading /> : list.length === 0 ? <Empty text="暂无待处理的课前重配" /> : (
+        <div className="grid grid-2">
+          {list.map(rf => <RefitCard key={rf.id} refit={rf} onDone={load} onOpen={setDetail} />)}
+        </div>
+      )}
+      {detail && <RentalDetail id={detail} onClose={() => setDetail(null)} onChanged={load} />}
+    </div>
+  )
+}
+
+function RefitCard({ refit, onDone, onOpen }) {
+  const [rec, setRec] = useState(null)
+  const [showScan, setShowScan] = useState(false)
+  const [qr, setQr] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [note, setNote] = useState('')
+  const toast = useToast()
+  useEffect(() => {
+    api('GET', `/counter/refits/${refit.id}/recommend`).then(setRec).catch(() => {})
+  }, [refit.id])
+
+  const process = async (body) => {
+    try {
+      const d = await api('POST', `/counter/refits/${refit.id}/process`, body)
+      toast(d.message)
+      onDone()
+    } catch (e) { toast(e.message, 'error') }
+  }
+  const top = rec?.candidates?.[0]
+  return (
+    <div className="card">
+      <div className="btn-row"><b>🔁 {TYPE_LABEL[refit.equipment_type]} 课前重配</b>
+        <span className="spacer" style={{ flex: 1 }} /><Badge color="orange">待换发</Badge></div>
+      <div style={{ margin: '6px 0' }}>{refit.guest_name} {refit.guest_phone} · {refit.course_name || '自由滑'} · 教练 {refit.coach_name}</div>
+      <div className="small">原因：<b>{refit.reason}</b>（当前 {refit.old_size}）</div>
+      <div className="small muted">课程已顺延 {refit.shift_applied} 分钟（累计 {refit.shift_minutes} 分钟）· 游客补偿 {yuan(refit.compensate_amount)} · 本次免费 · 申请 {refit.created_at}</div>
+
+      {rec && <div className="alert info" style={{ marginTop: 8 }}>
+        <b>库存推荐：{rec.target_size}</b>
+        <span className="small muted">（{rec.target_reason}）</span>
+        <div className="small" style={{ marginTop: 4 }}>
+          {(rec.candidates || []).map((cd, i) => (
+            <span key={cd.model_id} className="inline" style={{ marginRight: 8 }}>
+              {i === 0 ? '⭐ ' : ''}{cd.size_label}（{cd.brand}·库存 {cd.available}）
+            </span>
+          ))}
+          {(!rec.candidates || rec.candidates.length === 0) && <span className="danger-text">该类型暂无可用库存</span>}
+        </div>
+      </div>}
+
+      <div className="btn-row" style={{ marginTop: 8 }}>
+        <button className="btn sm" disabled={!top} onClick={() => process({ approve: true })}>
+          按推荐换发{top ? ` ${top.size_label}` : ''}
+        </button>
+        <button className="btn sm ghost" onClick={() => setShowScan(v => !v)}>扫新雪具码换发</button>
+        <button className="btn sm danger" onClick={() => setCancelling(v => !v)}>取消重配</button>
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="btn sm ghost" onClick={() => onOpen(refit.rental_id)}>查看单据</button>
+      </div>
+      {showScan && <div className="inline" style={{ marginTop: 6 }}>
+        <input placeholder="新雪具二维码 QR-..." value={qr} onChange={e => setQr(e.target.value)} style={{ width: 200 }} />
+        <button className="btn sm" onClick={() => process({ approve: true, new_qr_code: qr.trim() })}>确认换发</button>
+      </div>}
+      {cancelling && <div className="inline" style={{ marginTop: 6 }}>
+        <input placeholder="取消原因（课程顺延与补偿将回滚）" value={note} onChange={e => setNote(e.target.value)} style={{ width: 260 }} />
+        <button className="btn sm danger" onClick={() => process({ approve: false, note })}>确认取消</button>
       </div>}
     </div>
   )

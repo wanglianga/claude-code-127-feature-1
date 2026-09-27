@@ -84,7 +84,7 @@ func (s *Server) listCourses(w http.ResponseWriter, r *http.Request) {
 		SELECT c.id, c.name, c.coach_id, u.name AS coach_name, c.session_type,
 		       to_char(c.start_at,'YYYY-MM-DD HH24:MI') AS start_at,
 		       to_char(c.end_at,'HH24:MI') AS end_at, c.level,
-		       c.capacity, c.booked_count, c.meeting_point
+		       c.capacity, c.booked_count, c.meeting_point, c.shift_minutes
 		FROM courses c LEFT JOIN users u ON u.id=c.coach_id
 		WHERE c.start_at > now() - interval '2 hour'
 	`

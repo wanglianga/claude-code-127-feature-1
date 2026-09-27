@@ -19,6 +19,8 @@ func (s *Server) financeSummary(w http.ResponseWriter, r *http.Request) {
 			WHERE type='deduct_late'),0),
 		'insurance_offsets', COALESCE((SELECT sum(amount) FROM deposit_transactions
 			WHERE type='insurance_offset'),0),
+		'refit_compensation', COALESCE((SELECT sum(amount) FROM deposit_transactions
+			WHERE type='refit_compensation'),0),
 		'deposit_refunded', COALESCE((SELECT sum(amount) FROM deposit_transactions
 			WHERE type='refund'),0),
 		'repair_cost', COALESCE((SELECT sum(repair_cost) FROM repair_orders),0),
@@ -39,6 +41,7 @@ func (s *Server) ledger(w http.ResponseWriter, r *http.Request) {
 		         WHEN 'deduct_lost' THEN '丢失扣减'
 		         WHEN 'deduct_late' THEN '超时扣减'
 		         WHEN 'insurance_offset' THEN '保险冲抵返还'
+		         WHEN 'refit_compensation' THEN '课前重配补偿'
 		         WHEN 'refund' THEN '押金退还' END AS type_label
 		FROM deposit_transactions dt
 		JOIN rentals rr ON rr.id=dt.rental_id

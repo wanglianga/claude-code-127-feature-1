@@ -19,6 +19,7 @@ function Summary() {
     ['丢失扣减累计', s.lost_deducted, 'red'],
     ['超时扣减累计', s.late_deducted],
     ['保险冲抵返还', s.insurance_offsets, 'purple'],
+    ['课前重配补偿', s.refit_compensation, 'cyan'],
     ['押金退还累计', s.deposit_refunded, 'gray'],
     ['维修支出', s.repair_cost, 'orange'],
   ]
@@ -38,6 +39,7 @@ function Summary() {
         <h3>押金口径说明</h3>
         <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>
           <li>损坏/丢失/超时扣减按每笔流水记账；保险赔付到账后以「保险冲抵返还」退回对应押金。</li>
+          <li>课前重配延误补偿以租金减免形式随归还结算返还，记「课前重配补偿」流水。</li>
           <li>在租冻结押金属于负债，不计入收入；归还结算时按实际扣减清算。</li>
           <li>维修支出独立核算，可到「维修工单」查看每件成本，支撑型号采购决策。</li>
         </ul>
@@ -50,7 +52,7 @@ function Ledger() {
   const [list, setList] = useState(null)
   useEffect(() => { api('GET', '/finance/ledger').then(setList) }, [])
   if (!list) return <Loading />
-  const color = { hold: 'blue', deduct_damage: 'orange', deduct_lost: 'red', deduct_late: 'orange', insurance_offset: 'purple', refund: 'gray' }
+  const color = { hold: 'blue', deduct_damage: 'orange', deduct_lost: 'red', deduct_late: 'orange', insurance_offset: 'purple', refit_compensation: 'cyan', refund: 'gray' }
   return (
     <div>
       <h2 style={{ fontSize: 18 }}>押金流水台账</h2>

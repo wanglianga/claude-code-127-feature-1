@@ -33,16 +33,31 @@ func (s *Server) analytics(w http.ResponseWriter, r *http.Request) {
 		"course_exchange_congestion": s.qList(`SELECT COALESCE(json_agg(t ORDER BY t.exchange_count DESC), '[]') FROM (
 			SELECT co.id, co.name, co.session_type,
 			       to_char(co.start_at,'YYYY-MM-DD HH24:MI') AS start_at,
-			       u.name AS coach_name,
+			       u.name AS coach_name, co.shift_minutes,
 			       (SELECT count(*) FROM rentals rr
 			         JOIN rental_items ri ON ri.rental_id=rr.id
 			         JOIN exchanges e ON e.rental_item_id=ri.id
 			         WHERE rr.course_id=co.id) AS exchange_count,
+			       (SELECT count(*) FROM refits rf WHERE rf.course_id=co.id
+			         AND rf.status<>'cancelled') AS refit_count,
 			       (SELECT count(*) FROM rentals rr
 			         JOIN rental_items ri ON ri.rental_id=rr.id
 			         WHERE rr.course_id=co.id AND ri.fit_status='issue') AS fit_issue_count,
 			       co.booked_count, co.capacity
 			FROM courses co LEFT JOIN users u ON u.id=co.coach_id
+		) t`),
+		// 课前重配记录（教练发起的安全重配）
+		"precourse_refits": s.qList(`SELECT COALESCE(json_agg(t ORDER BY t.id DESC), '[]') FROM (
+			SELECT rf.id, co.name AS course_name, u.name AS guest_name, ri.equipment_type,
+			       rf.old_size, rf.new_size, rf.status, rf.reason,
+			       rf.compensate_amount, rf.shift_applied,
+			       to_char(rf.created_at,'MM-DD HH24:MI') AS created_at
+			FROM refits rf
+			JOIN rentals rr ON rr.id=rf.rental_id
+			JOIN users u ON u.id=rr.guest_id
+			JOIN rental_items ri ON ri.id=rf.rental_item_id
+			LEFT JOIN courses co ON co.id=rf.course_id
+			LIMIT 50
 		) t`),
 		// 分时取具槽占用（旺季排队压力）
 		"slot_pressure": s.qList(`SELECT COALESCE(json_agg(t ORDER BY t.slot_date, t.start_time), '[]') FROM (

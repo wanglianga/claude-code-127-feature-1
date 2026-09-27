@@ -58,3 +58,11 @@ export const DAMAGE_TYPES = Object.entries(DAMAGE_LABEL)
 export const CLAIM_STATUS = {
   filed: '已立案', under_review: '审核中', approved: '已核定待赔付', rejected: '已拒赔', paid: '已赔付'
 }
+
+// 课前尺码重配状态
+export const REFIT_STATUS = {
+  requested: ['待柜台换发', 'orange'],
+  awaiting_confirm: ['待教练复核', 'blue'],
+  done: ['已完成', 'green'],
+  cancelled: ['已取消', 'gray']
+}

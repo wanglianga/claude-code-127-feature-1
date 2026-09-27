@@ -43,7 +43,15 @@ func (s *Server) counterQueue(w http.ResponseWriter, r *http.Request) {
 		         FROM exchanges e
 		         JOIN rental_items ri ON ri.id=e.rental_item_id
 		         LEFT JOIN equipment_models m ON m.id=ri.model_id
-		         WHERE ri.rental_id=q.rental_id AND e.status='requested') AS exchanges
+		         WHERE ri.rental_id=q.rental_id AND e.status='requested') AS exchanges,
+		       (SELECT json_agg(json_build_object(
+		           'refit_id', rf.id, 'rental_item_id', rf.rental_item_id,
+		           'reason', rf.reason, 'old_size', rf.old_size,
+		           'equipment_type', ri.equipment_type
+		         ))
+		         FROM refits rf
+		         JOIN rental_items ri ON ri.id=rf.rental_item_id
+		         WHERE rf.rental_id=q.rental_id AND rf.status='requested') AS refits
 		FROM queue_tickets q
 		JOIN rentals r ON r.id=q.rental_id
 		JOIN users u ON u.id=r.guest_id
@@ -687,13 +695,21 @@ func (s *Server) finishReturn(w http.ResponseWriter, r *http.Request) {
 	var offsets float64
 	tx.QueryRow(`SELECT COALESCE(sum(amount),0) FROM deposit_transactions
 		WHERE rental_id=$1 AND type='insurance_offset'`, rid).Scan(&offsets)
+	// 课前重配的游客补偿（租金减免）随结算一并返还，财务留痕
+	var compensate float64
+	tx.QueryRow(`SELECT compensate_total FROM rentals WHERE id=$1`, rid).Scan(&compensate)
+	if compensate > 0 {
+		tx.Exec(`INSERT INTO deposit_transactions(rental_id, type, amount, note, created_by)
+			VALUES ($1,'refit_compensation',$2,'课前尺码重配延误补偿（租金减免）',$3)`,
+			rid, compensate, c.UserID)
+	}
 	held := depositTotal
-	refund := held - deducted + offsets
+	refund := held - deducted + offsets + compensate
 	if refund < 0 {
 		refund = 0
 	}
-	if refund > held {
-		refund = held
+	if refund > held+offsets+compensate {
+		refund = held + offsets + compensate
 	}
 	tx.Exec(`INSERT INTO deposit_transactions(rental_id, type, amount, note, created_by)
 		VALUES ($1,'refund',$2,'归还结算后退还原冻结押金（保险赔付到账后另行冲抵）',$3)`,
@@ -717,6 +733,7 @@ func (s *Server) finishReturn(w http.ResponseWriter, r *http.Request) {
 		"deposit_held":   held,
 		"deducted":       deducted,
 		"late_fee":       lateFee,
+		"compensation":   compensate,
 		"refund":         refund,
 		"used_hours":     round2f(usedHours),
 		"insurance_hint": "如有保险理赔，审核赔付后金额将另行返还，可在订单中查看依据",

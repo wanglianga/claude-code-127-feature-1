@@ -134,3 +134,43 @@ func TestLateFeeAndNight(t *testing.T) {
 		t.Fatal("zero hours = zero fee")
 	}
 }
+
+func TestRefitDelayAndCompensation(t *testing.T) {
+	if RefitDelayMinutes() != 15 {
+		t.Fatalf("refit delay = %d want 15", RefitDelayMinutes())
+	}
+	// 15 分钟延误补偿 20 元租金减免
+	if c := RefitCompensation(15, 580); c != 20 {
+		t.Fatalf("compensation = %v want 20", c)
+	}
+	// 补偿封顶不超过租金总额
+	if c := RefitCompensation(15, 10); c != 10 {
+		t.Fatalf("compensation capped = %v want 10", c)
+	}
+	if c := RefitCompensation(0, 580); c != 0 {
+		t.Fatal("zero delay = zero compensation")
+	}
+}
+
+func TestRefitCourseShift(t *testing.T) {
+	// 首次重配：顺延 15，累计 15
+	a, total := RefitCourseShift(0, 15)
+	if a != 15 || total != 15 {
+		t.Fatalf("first shift = %d/%d want 15/15", a, total)
+	}
+	// 已累计 30：再顺延 15，累计 45 到上限
+	a, total = RefitCourseShift(30, 15)
+	if a != 15 || total != 45 {
+		t.Fatalf("shift = %d/%d want 15/45", a, total)
+	}
+	// 已累计 40：只剩 5 分钟可顺延，超出部分不再顺延
+	a, total = RefitCourseShift(40, 15)
+	if a != 5 || total != 45 {
+		t.Fatalf("capped shift = %d/%d want 5/45", a, total)
+	}
+	// 已到上限：不再顺延
+	a, total = RefitCourseShift(45, 15)
+	if a != 0 || total != 45 {
+		t.Fatalf("maxed shift = %d/%d want 0/45", a, total)
+	}
+}

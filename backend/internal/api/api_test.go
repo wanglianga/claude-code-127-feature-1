@@ -611,3 +611,306 @@ func TestMaintenanceGeneration(t *testing.T) {
 		t.Fatalf("应生成至少 1 条保养提醒，实际 %d", gen.Created)
 	}
 }
+
+// 课程前尺码重配全流程：教练发起（初学者雪鞋过松）→ 课程顺延+游客补偿 →
+// 柜台按库存推荐换发 → 教练重新确认安全动作与课程时间 → 游客端可见 → 结算返还补偿
+func TestPreCourseRefit(t *testing.T) {
+	g := login(t, "13900000001")       // 张明 170/65/42/57 初学者
+	coach := login(t, "13800000002")   // 陈教练（初学者日场入门班）
+	counter := login(t, "13800000003") // 孙柜台
+	fin := login(t, "13800000006")
+
+	// 报名初学者日场入门班（课程 1，教练陈教练）
+	var slots []struct {
+		ID        int64 `json:"id"`
+		Remaining int   `json:"remaining"`
+	}
+	req(t, "GET", "/slots?session=day", g, nil, &slots)
+	var slotID int64
+	for _, s := range slots {
+		if s.Remaining >= 1 {
+			slotID = s.ID
+			break
+		}
+	}
+	var created struct {
+		Rentals []struct {
+			RentalID     int64   `json:"rental_id"`
+			DepositTotal float64 `json:"deposit_total"`
+			FeeTotal     float64 `json:"fee_total"`
+		} `json:"rentals"`
+	}
+	code, e := req(t, "POST", "/rentals", g, map[string]interface{}{
+		"session_type": "day", "course_id": 1, "slot_id": slotID,
+		"include": map[string]bool{"pole": true, "protector": true},
+	}, &created)
+	mustOK(t, code, e["error"])
+	rid := created.Rentals[0].RentalID
+	depositTotal := created.Rentals[0].DepositTotal
+	req(t, "POST", fmt.Sprintf("/rentals/%d/confirm", rid), g, map[string]string{}, nil)
+	code, e = req(t, "POST", "/counter/checkout", counter, map[string]interface{}{"rental_id": rid}, nil)
+	mustOK(t, code, e["error"])
+
+	// 找到雪鞋/雪板/头盔明细
+	var detail struct {
+		Items []struct {
+			ID            int64  `json:"id"`
+			EquipmentType string `json:"equipment_type"`
+		} `json:"items"`
+	}
+	req(t, "GET", fmt.Sprintf("/rentals/%d", rid), g, nil, &detail)
+	var bootID, skiID, helmetID int64
+	for _, i := range detail.Items {
+		switch i.EquipmentType {
+		case "boot":
+			bootID = i.ID
+		case "ski":
+			skiID = i.ID
+		case "helmet":
+			helmetID = i.ID
+		}
+	}
+
+	// 越权：游客不能发起重配
+	code, _ = req(t, "POST", "/coach/refits", g,
+		map[string]interface{}{"rental_item_id": bootID, "reason": "x"}, nil)
+	if code != http.StatusForbidden {
+		t.Fatalf("游客发起重配应 403，实际 %d", code)
+	}
+
+	// 1. 教练发起雪鞋重配：课程顺延 15 分钟，补偿 20 元
+	var rf struct {
+		RefitID          int64   `json:"refit_id"`
+		ShiftApplied     int     `json:"shift_applied"`
+		CourseShiftTotal int     `json:"course_shift_total"`
+		Compensate       float64 `json:"compensate_amount"`
+		RightsImpact     string  `json:"rights_impact"`
+	}
+	code, e = req(t, "POST", "/coach/refits", coach,
+		map[string]interface{}{"rental_item_id": bootID, "reason": "初学者雪鞋过松，滑行时脚跟打滑，影响安全"}, &rf)
+	mustOK(t, code, e["error"])
+	if rf.ShiftApplied != 15 || rf.CourseShiftTotal != 15 || rf.Compensate != 20 {
+		t.Fatalf("首次重配应顺延15/累计15/补偿20，实际 %+v", rf)
+	}
+	if !strings.Contains(rf.RightsImpact, "顺延 15 分钟") || !strings.Contains(rf.RightsImpact, "免费") {
+		t.Fatalf("权益说明异常: %s", rf.RightsImpact)
+	}
+	bootRefit := rf.RefitID
+
+	// 同一雪具重复发起应冲突
+	code, _ = req(t, "POST", "/coach/refits", coach,
+		map[string]interface{}{"rental_item_id": bootID, "reason": "重复"}, nil)
+	if code != http.StatusConflict {
+		t.Fatalf("重复重配应 409，实际 %d", code)
+	}
+
+	// 2. 教练再发起雪板重配：累计顺延 30 分钟，补偿累计 40
+	code, e = req(t, "POST", "/coach/refits", coach,
+		map[string]interface{}{"rental_item_id": skiID, "reason": "雪板偏长初学者难控制"}, &rf)
+	mustOK(t, code, e["error"])
+	if rf.CourseShiftTotal != 30 {
+		t.Fatalf("第二次重配累计顺延应为 30，实际 %d", rf.CourseShiftTotal)
+	}
+	skiRefit := rf.RefitID
+
+	// 课程时间同步调整（10:00 → 10:30），教练排课可见
+	var courses []struct {
+		ID           int64  `json:"id"`
+		StartAt      string `json:"start_at"`
+		ShiftMinutes int    `json:"shift_minutes"`
+	}
+	req(t, "GET", "/courses", coach, nil, &courses)
+	shiftOK := false
+	for _, co := range courses {
+		if co.ID == 1 && co.ShiftMinutes == 30 && strings.HasSuffix(co.StartAt, "10:30") {
+			shiftOK = true
+		}
+	}
+	if !shiftOK {
+		t.Fatalf("课程应累计顺延 30 分钟至 10:30，实际 %+v", courses)
+	}
+
+	// 3. 柜台查看待处理重配与库存推荐
+	var pending []struct {
+		ID            int64  `json:"id"`
+		EquipmentType string `json:"equipment_type"`
+		OldSize       string `json:"old_size"`
+	}
+	req(t, "GET", "/counter/refits", counter, nil, &pending)
+	if len(pending) != 2 {
+		t.Fatalf("柜台应看到 2 条待处理重配，实际 %d", len(pending))
+	}
+	var rec struct {
+		TargetSize string `json:"target_size"`
+		Candidates []struct {
+			SizeLabel string `json:"size_label"`
+			Available int    `json:"available"`
+		} `json:"candidates"`
+	}
+	code, e = req(t, "GET", fmt.Sprintf("/counter/refits/%d/recommend", bootRefit), counter, nil, &rec)
+	mustOK(t, code, e["error"])
+	if rec.TargetSize != "EU42" || len(rec.Candidates) == 0 {
+		t.Fatalf("雪鞋推荐目标应为 EU42 且有候选库存，实际 %+v", rec)
+	}
+
+	// 4. 柜台按推荐换发雪鞋（当前 EU42，应换到相邻尺码）
+	var proc struct {
+		NewSize string `json:"new_size"`
+	}
+	code, e = req(t, "POST", fmt.Sprintf("/counter/refits/%d/process", bootRefit), counter,
+		map[string]interface{}{"approve": true}, &proc)
+	mustOK(t, code, e["error"])
+	if proc.NewSize == "" || proc.NewSize == "EU42" {
+		t.Fatalf("换发后尺码应不同于 EU42，实际 %q", proc.NewSize)
+	}
+
+	// 5. 教练未重新做课前确认时复核应被拒绝
+	code, _ = req(t, "POST", fmt.Sprintf("/coach/refits/%d/confirm", bootRefit), coach,
+		map[string]string{"note": "跳过确认"}, nil)
+	if code != http.StatusConflict {
+		t.Fatalf("未重新确认安全动作就复核应 409，实际 %d", code)
+	}
+	// 重新确认安全动作后复核通过
+	code, e = req(t, "POST", "/coach/fit-check", coach,
+		map[string]interface{}{"rental_item_id": bootID, "fit_status": "ok", "note": "重配后合脚"}, nil)
+	mustOK(t, code, e["error"])
+	var confirm struct {
+		CourseStart string `json:"course_start"`
+	}
+	code, e = req(t, "POST", fmt.Sprintf("/coach/refits/%d/confirm", bootRefit), coach,
+		map[string]string{"note": "安全动作复核通过"}, &confirm)
+	mustOK(t, code, e["error"])
+	if !strings.HasSuffix(confirm.CourseStart, "10:30") {
+		t.Fatalf("复核后课程时间应为 10:30，实际 %q", confirm.CourseStart)
+	}
+
+	// 6. 游客端同步可见：调换原因、是否收费、课程权益影响
+	var gd struct {
+		CompensateTotal float64 `json:"compensate_total"`
+		Refits          []struct {
+			ID           int64   `json:"id"`
+			Status       string  `json:"status"`
+			Reason       string  `json:"reason"`
+			ChargeFee    float64 `json:"charge_fee"`
+			Compensate   float64 `json:"compensate_amount"`
+			RightsImpact string  `json:"rights_impact"`
+			OldSize      string  `json:"old_size"`
+			NewSize      string  `json:"new_size"`
+		} `json:"refits"`
+		SafetyReminders []struct {
+			Message string `json:"message"`
+		} `json:"safety_reminders"`
+	}
+	req(t, "GET", fmt.Sprintf("/rentals/%d", rid), g, nil, &gd)
+	if gd.CompensateTotal != 40 {
+		t.Fatalf("游客补偿累计应为 40，实际 %.2f", gd.CompensateTotal)
+	}
+	if len(gd.Refits) != 2 {
+		t.Fatalf("游客端应看到 2 条重配记录，实际 %d", len(gd.Refits))
+	}
+	var seenDone bool
+	for _, r := range gd.Refits {
+		if r.ChargeFee != 0 {
+			t.Fatalf("安全重配应免费，实际收费 %.2f", r.ChargeFee)
+		}
+		if r.ID == bootRefit {
+			seenDone = true
+			if r.Status != "done" || r.NewSize == "" || r.Compensate != 20 {
+				t.Fatalf("雪鞋重配应已完成且补偿 20，实际 %+v", r)
+			}
+			if !strings.Contains(r.RightsImpact, "课程开始时间顺延") {
+				t.Fatalf("课程权益影响说明缺失: %s", r.RightsImpact)
+			}
+			if !strings.Contains(r.Reason, "过松") {
+				t.Fatalf("调换原因应对游客可见，实际 %q", r.Reason)
+			}
+		}
+	}
+	if !seenDone {
+		t.Fatal("游客端未找到雪鞋重配记录")
+	}
+	reminded := false
+	for _, s := range gd.SafetyReminders {
+		if strings.Contains(s.Message, "重配") {
+			reminded = true
+		}
+	}
+	if !reminded {
+		t.Fatal("游客应收到重配安全提醒")
+	}
+
+	// 7. 头盔重配后柜台取消：课程顺延与补偿回滚
+	code, e = req(t, "POST", "/coach/refits", coach,
+		map[string]interface{}{"rental_item_id": helmetID, "reason": "头盔松动"}, &rf)
+	mustOK(t, code, e["error"])
+	if rf.CourseShiftTotal != 45 {
+		t.Fatalf("第三次重配累计应顺延 45（到上限），实际 %d", rf.CourseShiftTotal)
+	}
+	code, e = req(t, "POST", fmt.Sprintf("/counter/refits/%d/process", rf.RefitID), counter,
+		map[string]interface{}{"approve": false, "note": "游客决定不换"}, nil)
+	mustOK(t, code, e["error"])
+	req(t, "GET", fmt.Sprintf("/rentals/%d", rid), g, nil, &gd)
+	if gd.CompensateTotal != 40 {
+		t.Fatalf("取消后补偿应回滚为 40，实际 %.2f", gd.CompensateTotal)
+	}
+	req(t, "GET", "/courses", coach, nil, &courses)
+	for _, co := range courses {
+		if co.ID == 1 && co.ShiftMinutes != 30 {
+			t.Fatalf("取消后课程顺延应回滚为 30，实际 %d", co.ShiftMinutes)
+		}
+	}
+
+	// 8. 柜台换发雪板重配，教练复核完成
+	code, e = req(t, "POST", fmt.Sprintf("/counter/refits/%d/process", skiRefit), counter,
+		map[string]interface{}{"approve": true}, &proc)
+	mustOK(t, code, e["error"])
+	req(t, "POST", "/coach/fit-check", coach,
+		map[string]interface{}{"rental_item_id": skiID, "fit_status": "ok"}, nil)
+	code, e = req(t, "POST", fmt.Sprintf("/coach/refits/%d/confirm", skiRefit), coach,
+		map[string]string{}, nil)
+	mustOK(t, code, e["error"])
+
+	// 9. 归还结算：补偿随押金一并返还，财务留痕
+	req(t, "POST", fmt.Sprintf("/rentals/%d/queue-return", rid), g,
+		map[string]interface{}{"night": false}, nil)
+	for {
+		var cur struct {
+			Items []struct {
+				ID     int64  `json:"id"`
+				Status string `json:"status"`
+			} `json:"items"`
+		}
+		req(t, "GET", fmt.Sprintf("/rentals/%d", rid), g, nil, &cur)
+		next := int64(0)
+		for _, x := range cur.Items {
+			if x.Status == "out" {
+				next = x.ID
+				break
+			}
+		}
+		if next == 0 {
+			break
+		}
+		code, e = req(t, "POST", fmt.Sprintf("/counter/returns/%d/inspect", rid), counter,
+			map[string]interface{}{"rental_item_id": next, "result": "ok"}, nil)
+		mustOK(t, code, e["error"])
+	}
+	var finish struct {
+		Refund       float64 `json:"refund"`
+		Compensation float64 `json:"compensation"`
+	}
+	code, e = req(t, "POST", fmt.Sprintf("/counter/returns/%d/finish", rid), counter,
+		map[string]string{}, &finish)
+	mustOK(t, code, e["error"])
+	if finish.Compensation != 40 || finish.Refund != depositTotal+40 {
+		t.Fatalf("结算应含补偿 40 并随押金返还（共 %.2f），实际补偿 %.2f 退还 %.2f",
+			depositTotal+40, finish.Compensation, finish.Refund)
+	}
+	var summary struct {
+		RefitCompensation float64 `json:"refit_compensation"`
+	}
+	req(t, "GET", "/finance/summary", fin, nil, &summary)
+	if summary.RefitCompensation != 40 {
+		t.Fatalf("财务总览重配补偿应为 40，实际 %.2f", summary.RefitCompensation)
+	}
+}

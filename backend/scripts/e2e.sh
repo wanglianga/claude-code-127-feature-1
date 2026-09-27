@@ -38,6 +38,17 @@ api POST /counter/call "$COUNTER" '{"type":"exchange","station":"1号台"}' >/de
 api POST /counter/exchanges/1/process "$COUNTER" '{"approve":true}' | python3 -c "import sys,json;print('  ',json.load(sys.stdin)['message'])"
 echo "### C. 订单1出库 → 教练发现初学者雪板不合规（安全提醒）→ 游客中途报内衬潮湿 → 柜台评定并自动换发"
 api POST /counter/checkout "$COUNTER" '{"rental_id":1}'; echo
+
+echo "### C0. 课前重配：教练发现张明（初学者）雪鞋过松 → 课程顺延+补偿 → 柜台按库存推荐换发 → 教练复核"
+RF=$(api POST /coach/refits "$COACH" '{"rental_item_id":2,"reason":"初学者雪鞋过松，滑行时脚跟打滑，影响安全"}')
+echo "$RF" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  ',d['message']);print('   权益说明:',d['rights_impact'])"
+RFID=$(echo "$RF" | python3 -c "import sys,json;print(json.load(sys.stdin)['refit_id'])")
+api GET /counter/refits/$RFID/recommend "$COUNTER" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  柜台库存推荐:',d['target_size'],[(c['size_label'],'库存'+str(c['available'])) for c in d['candidates'][:3]])"
+api POST /counter/refits/$RFID/process "$COUNTER" '{"approve":true}' | python3 -c "import sys,json;print('  ',json.load(sys.stdin)['message'])"
+api POST /coach/fit-check "$COACH" '{"rental_item_id":2,"fit_status":"ok","note":"重配后雪鞋合脚"}' >/dev/null
+api POST /coach/refits/$RFID/confirm "$COACH" '{"note":"安全动作复核通过，按顺延时间上课"}' | python3 -c "import sys,json;d=json.load(sys.stdin);print('  ',d['message'],'| 课程时间:',d['course_start'])"
+api GET /rentals/1 "$G1" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['refits'][0];print('  游客端重配记录:',r['old_size'],'->',r['new_size'],'| 收费',r['charge_fee'],'| 补偿',r['compensate_amount'],'| 状态',r['status']);print('  课程权益影响:',r['rights_impact'])"
+
 api POST /coach/fit-check "$COACH" '{"rental_item_id":1,"fit_status":"issue","note":"学员控制不住板"}'; echo
 api GET /rentals/1 "$G1" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  游客可见安全提醒:',d['safety_reminders'][0]['message'])"
 api POST /rentals/1/damage "$G1" '{"rental_item_id":2,"damage_type":"liner_wet","severity":"medium","description":"滑两小时后内衬湿了"}'; echo
@@ -52,7 +63,7 @@ OUTIDS=$(api GET /rentals/1 "$COUNTER" | python3 -c "import sys,json;d=json.load
 for ri in $OUTIDS; do
   api POST /counter/returns/1/inspect "$COUNTER" "{\"rental_item_id\":$ri,\"result\":\"ok\"}" >/dev/null
 done
-api POST /counter/returns/1/finish "$COUNTER" '{}' | python3 -c "import sys,json;d=json.load(sys.stdin);print('  冻结',d['deposit_held'],'扣减',d['deducted'],'退还',d['refund'])"
+api POST /counter/returns/1/finish "$COUNTER" '{}' | python3 -c "import sys,json;d=json.load(sys.stdin);print('  冻结',d['deposit_held'],'扣减',d['deducted'],'重配补偿',d['compensation'],'退还',d['refund'])"
 echo
 
 echo "### E. 订单3夜场板刃损伤：保险审核→赔付→维修→夜场归还结算"

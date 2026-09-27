@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api, yuan, TYPE_LABEL, RENTAL_STATUS, ITEM_STATUS, DAMAGE_TYPES, uploadPhoto } from '../api.js'
+import { api, yuan, TYPE_LABEL, RENTAL_STATUS, ITEM_STATUS, DAMAGE_TYPES, REFIT_STATUS, uploadPhoto } from '../api.js'
 import { Badge, Modal, Field, useToast, Empty, Loading } from './ui.jsx'
 
 function statusBadge(s) {
@@ -43,7 +43,36 @@ export default function RentalDetail({ id, onClose, onChanged, asGuest, canAsses
         <div className="stat"><div className="k">租金合计</div><div className="v">{yuan(r.fee_total)}</div></div>
         <div className="stat"><div className="k">保险费</div><div className="v">{yuan(r.premium_total)}</div></div>
         <div className="stat"><div className="k">延时</div><div className="v">{Number(r.extra_hours || 0)}h</div></div>
+        {Number(r.compensate_total) > 0 && (
+          <div className="stat"><div className="k">平台补偿（租金减免）</div><div className="v ok-text">-{yuan(r.compensate_total)}</div></div>
+        )}
       </div>
+
+      {/* 课前尺码重配记录：调换原因 / 是否收费 / 课程权益影响（游客端同步可见） */}
+      {r.refits?.length > 0 && (
+        <>
+          <h4>课前尺码重配</h4>
+          {r.refits.map(rf => (
+            <div key={rf.id} className="alert info">
+              <div className="btn-row" style={{ justifyContent: 'space-between' }}>
+                <b>🔁 {TYPE_LABEL[rf.equipment_type]} {rf.old_size}{rf.new_size ? ` → ${rf.new_size}` : ''}</b>
+                <Badge color={REFIT_STATUS[rf.status]?.[1] || 'gray'}>{REFIT_STATUS[rf.status]?.[0] || rf.status}</Badge>
+              </div>
+              <div className="small">调换原因：{rf.reason}</div>
+              <div className="small">
+                是否收费：<b>{Number(rf.charge_fee) > 0 ? yuan(rf.charge_fee) : '免费'}</b>
+                {Number(rf.compensate_amount) > 0 && <> · 平台补偿：<b className="ok-text">{yuan(rf.compensate_amount)}</b></>}
+              </div>
+              <div className="small">课程权益影响：{rf.rights_impact}</div>
+              <div className="small muted">
+                教练发起 {rf.created_at}
+                {rf.processed_at && ` · 柜台换发 ${rf.processed_at}`}
+                {rf.reconfirmed_at && ` · 教练复核 ${rf.reconfirmed_at}`}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
 
       {r.safety_reminders?.length > 0 && (
         <div className="alert warn">
@@ -170,11 +199,12 @@ function fitBadge(f) {
 }
 function depositLabel(t) {
   return { hold: '冻结押金', deduct_damage: '损坏扣减', deduct_lost: '丢失扣减',
-    deduct_late: '超时扣减', insurance_offset: '保险冲抵返还', refund: '押金退还' }[t] || t
+    deduct_late: '超时扣减', insurance_offset: '保险冲抵返还',
+    refit_compensation: '课前重配补偿', refund: '押金退还' }[t] || t
 }
 function depositColor(t) {
   if (t === 'hold') return ''
-  if (t === 'refund' || t === 'insurance_offset') return 'green'
+  if (t === 'refund' || t === 'insurance_offset' || t === 'refit_compensation') return 'green'
   return 'red'
 }
 

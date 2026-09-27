@@ -50,7 +50,9 @@ function Analytics() {
             <div className="small muted">{c.start_at} · 教练 {c.coach_name || '待定'} · 报名 {c.booked_count}/{c.capacity}</div>
             <div className="btn-row" style={{ marginTop: 8 }}>
               <Badge color={c.exchange_count > 0 ? 'purple' : 'gray'}>换码 {c.exchange_count} 次</Badge>
+              <Badge color={c.refit_count > 0 ? 'orange' : 'gray'}>课前重配 {c.refit_count} 次</Badge>
               <Badge color={c.fit_issue_count > 0 ? 'red' : 'gray'}>课前不合规 {c.fit_issue_count} 人</Badge>
+              {c.shift_minutes > 0 && <Badge color="orange">重配顺延 {c.shift_minutes} 分钟</Badge>}
               {busy && <Badge color="orange">⚠️ 该时段拥堵，建议增开柜台/调整备货尺码</Badge>}
             </div>
           </div>
@@ -95,6 +97,31 @@ function Analytics() {
       <div className="btn-row">
         {d.damage_types.map(x => <Badge key={x.damage_type} color="red">{x.label} × {x.n}</Badge>)}
       </div>
+
+      <h3 style={{ marginTop: 18 }}>🔁 课前尺码重配记录（教练发起的安全重配）</h3>
+      {(d.precourse_refits || []).length === 0 ? <Empty text="暂无课前重配" /> : (
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-wrap"><table>
+            <thead><tr><th>时间</th><th>课程</th><th>游客</th><th>雪具</th><th>尺码变化</th><th>原因</th><th>补偿</th><th>顺延</th><th>状态</th></tr></thead>
+            <tbody>
+              {d.precourse_refits.map(rf => <tr key={rf.id}>
+                <td className="small nowrap">{rf.created_at}</td>
+                <td className="small">{rf.course_name || '自由滑'}</td>
+                <td>{rf.guest_name}</td>
+                <td>{TYPE_LABEL[rf.equipment_type]}</td>
+                <td className="small">{rf.old_size}{rf.new_size ? ` → ${rf.new_size}` : ''}</td>
+                <td className="small muted">{rf.reason}</td>
+                <td className="ok-text">{yuan(rf.compensate_amount)}</td>
+                <td>{rf.shift_applied} 分钟</td>
+                <td>{rf.status === 'done' ? <Badge color="green">已完成</Badge>
+                  : rf.status === 'awaiting_confirm' ? <Badge color="blue">待教练复核</Badge>
+                  : rf.status === 'cancelled' ? <Badge color="gray">已取消</Badge>
+                  : <Badge color="orange">待柜台换发</Badge>}</td>
+              </tr>)}
+            </tbody>
+          </table></div>
+        </div>
+      )}
     </div>
   )
 }

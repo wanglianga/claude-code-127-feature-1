@@ -11,11 +11,12 @@ import (
 func (s *Server) coachCourses(w http.ResponseWriter, r *http.Request) {
 	c := currentUser(r)
 	s.listJSON(w, `SELECT COALESCE(json_agg(t ORDER BY t.start_at), '[]') FROM (
-		SELECT co.id, co.name, co.session_type,
+		SELECT co.id, co.name, co.session_type, co.shift_minutes,
 			to_char(co.start_at,'YYYY-MM-DD HH24:MI') AS start_at,
 			to_char(co.end_at,'HH24:MI') AS end_at, co.level, co.booked_count, co.capacity,
 			(SELECT json_agg(json_build_object(
 				'rental_id', rr.id, 'guest_name', u.name, 'code', rr.code, 'status', rr.status,
+				'compensate_total', rr.compensate_total,
 				'items', (SELECT json_agg(json_build_object(
 					'ri_id', ri.id, 'type', ri.equipment_type,
 					'recommended', ri.recommended_size, 'actual', m.size_label,
@@ -26,7 +27,13 @@ func (s *Server) coachCourses(w http.ResponseWriter, r *http.Request) {
 				  LEFT JOIN equipment_models m ON m.id=ri.model_id
 				  LEFT JOIN equipment_items ei ON ei.id=ri.item_id
 				  LEFT JOIN users gu ON gu.id=rr.guest_id
-				  WHERE ri.rental_id=rr.id)
+				  WHERE ri.rental_id=rr.id),
+				'refits', (SELECT json_agg(json_build_object(
+					'id', rf.id, 'status', rf.status, 'reason', rf.reason,
+					'old_size', rf.old_size, 'new_size', rf.new_size,
+					'compensate_amount', rf.compensate_amount,
+					'shift_applied', rf.shift_applied, 'rights_impact', rf.rights_impact
+				)) FROM refits rf WHERE rf.rental_id=rr.id AND rf.status IN ('requested','awaiting_confirm'))
 			))
 			FROM rentals rr JOIN users u ON u.id=rr.guest_id
 			WHERE rr.course_id=co.id AND rr.status IN ('reserved','equipped','return_pending')
