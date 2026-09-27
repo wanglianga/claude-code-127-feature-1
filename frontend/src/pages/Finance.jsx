@@ -19,6 +19,7 @@ function Summary() {
     ['丢失扣减累计', s.lost_deducted, 'red'],
     ['超时扣减累计', s.late_deducted],
     ['保险冲抵返还', s.insurance_offsets, 'purple'],
+    ['课程延误补偿', s.course_compensations, 'cyan'],
     ['押金退还累计', s.deposit_refunded, 'gray'],
     ['维修支出', s.repair_cost, 'orange'],
   ]
@@ -50,7 +51,7 @@ function Ledger() {
   const [list, setList] = useState(null)
   useEffect(() => { api('GET', '/finance/ledger').then(setList) }, [])
   if (!list) return <Loading />
-  const color = { hold: 'blue', deduct_damage: 'orange', deduct_lost: 'red', deduct_late: 'orange', insurance_offset: 'purple', refund: 'gray' }
+  const color = { hold: 'blue', deduct_damage: 'orange', deduct_lost: 'red', deduct_late: 'orange', insurance_offset: 'purple', compensation: 'cyan', refund: 'gray' }
   return (
     <div>
       <h2 style={{ fontSize: 18 }}>押金流水台账</h2>

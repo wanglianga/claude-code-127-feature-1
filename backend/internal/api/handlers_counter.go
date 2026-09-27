@@ -16,7 +16,7 @@ import (
 
 func (s *Server) counterQueue(w http.ResponseWriter, r *http.Request) {
 	qtype := r.URL.Query().Get("type")
-	types := []string{"pickup", "exchange", "return_day", "return_night", "damage"}
+	types := []string{"pickup", "exchange", "return_day", "return_night", "damage", "refit"}
 	in := map[string]bool{}
 	if qtype != "" {
 		in[qtype] = true
@@ -43,7 +43,14 @@ func (s *Server) counterQueue(w http.ResponseWriter, r *http.Request) {
 		         FROM exchanges e
 		         JOIN rental_items ri ON ri.id=e.rental_item_id
 		         LEFT JOIN equipment_models m ON m.id=ri.model_id
-		         WHERE ri.rental_id=q.rental_id AND e.status='requested') AS exchanges
+		         WHERE ri.rental_id=q.rental_id AND e.status='requested') AS exchanges,
+		       (SELECT json_agg(json_build_object(
+		           'refit_id', rf.id, 'rental_item_id', rf.rental_item_id,
+		           'reason', rf.reason, 'old_size', rf.old_size,
+		           'target_size', rf.target_size, 'est_minutes', rf.est_minutes
+		         ))
+		         FROM refits rf
+		         WHERE rf.rental_id=q.rental_id AND rf.status='requested') AS refits
 		FROM queue_tickets q
 		JOIN rentals r ON r.id=q.rental_id
 		JOIN users u ON u.id=r.guest_id

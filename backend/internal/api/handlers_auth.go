@@ -144,6 +144,7 @@ func (s *Server) queueSummary(w http.ResponseWriter, r *http.Request) {
 		'exchange',    (SELECT count(*) FROM queue_tickets WHERE queue_type='exchange' AND status IN ('waiting','called','serving')),
 		'return_day',  (SELECT count(*) FROM queue_tickets WHERE queue_type='return_day' AND status IN ('waiting','called','serving')),
 		'return_night',(SELECT count(*) FROM queue_tickets WHERE queue_type='return_night' AND status IN ('waiting','called','serving')),
-		'damage',      (SELECT count(*) FROM queue_tickets WHERE queue_type='damage' AND status IN ('waiting','called','serving'))
+		'damage',      (SELECT count(*) FROM queue_tickets WHERE queue_type='damage' AND status IN ('waiting','called','serving')),
+		'refit',       (SELECT count(*) FROM queue_tickets WHERE queue_type='refit' AND status IN ('waiting','called','serving'))
 	)`)
 }

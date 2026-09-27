@@ -32,10 +32,23 @@ api POST /coach/fit-check "$COACH" '{"rental_item_id":7,"fit_status":"ok"}'; ech
 api POST /coach/fit-check "$COACH" '{"rental_item_id":6,"fit_status":"ok"}'; echo
 echo
 
+echo "### B0. 课前尺码重配：教练发现李华雪鞋过松发起重配 → 柜台按库存推荐换发 → 教练重新确认"
+# 订单2 雪鞋 rental_item_id=7（EU43.5，李华脚码 43.5 -> 过松收半码 EU43）
+REFIT=$(api POST /coach/refits "$COACH" '{"rental_item_id":7,"reason":"初学者雪鞋过松，脚跟打滑影响安全"}')
+echo "$REFIT" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  发起:',d['message'],'排队号',d['ticket_no'])"
+RFID=$(echo "$REFIT" | python3 -c "import sys,json;print(json.load(sys.stdin)['refit_id'])")
+api GET /counter/refits/pending "$COUNTER" | python3 -c "import sys,json;d=json.load(sys.stdin);t=[x for x in d if x['refit_id']==$RFID][0];print('  柜台推荐:',[(r['size_label'],r['stock']) for r in t['recommendations']])"
+DONE=$(api POST /counter/refits/$RFID/complete "$COUNTER" '{"actual_minutes":25}')
+echo "$DONE" | python3 -c "import sys,json;d=json.load(sys.stdin);print('  完成:新尺码',d['new_size'],'耗时',d['actual_minutes'],'分钟,课程顺延',d['delay_minutes'],'分钟,补偿',d['compensate_yuan'],'元,收费',d['charge_yuan'],'元');print('  权益:',d['rights_impact'])"
+api GET /rentals/2 "$G2" | python3 -c "import sys,json;d=json.load(sys.stdin);rf=d['refits'][0];print('  游客端:原因',rf['reason'],'| 收费',rf['charge_yuan'],'| 状态',rf['status']);print('  游客端权益:',rf['rights_impact'])"
+api GET /coach/courses "$COACH" | python3 -c "import sys,json;d=json.load(sys.stdin);rf=[r for c in d for r in (c['refits'] or []) if r['refit_id']==$RFID][0];print('  教练端同步:状态',rf['status'],'顺延',rf['delay_minutes'],'分钟,补偿',rf['compensate_yuan'],'元')"
+api POST /coach/refits/$RFID/reconfirm "$COACH" '{"safety_confirmed":true,"schedule_confirmed":true,"note":"新鞋合脚，犁式刹车已重新演示"}'; echo
+echo
+
 echo "### B2. 李华(订单2)雪鞋挤脚，申请换到 EU44，柜台叫号并跨型号换发"
-api POST /rentals/2/exchange-request "$G2" '{"rental_item_id":7,"reason":"滑一节课后脚趾发麻","desired_size":"EU44"}'; echo
+EXID=$(api POST /rentals/2/exchange-request "$G2" '{"rental_item_id":7,"reason":"滑一节课后脚趾发麻","desired_size":"EU44"}' | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['exchange_id'])")
 api POST /counter/call "$COUNTER" '{"type":"exchange","station":"1号台"}' >/dev/null
-api POST /counter/exchanges/1/process "$COUNTER" '{"approve":true}' | python3 -c "import sys,json;print('  ',json.load(sys.stdin)['message'])"
+api POST /counter/exchanges/$EXID/process "$COUNTER" '{"approve":true}' | python3 -c "import sys,json;print('  ',json.load(sys.stdin)['message'])"
 echo "### C. 订单1出库 → 教练发现初学者雪板不合规（安全提醒）→ 游客中途报内衬潮湿 → 柜台评定并自动换发"
 api POST /counter/checkout "$COUNTER" '{"rental_id":1}'; echo
 api POST /coach/fit-check "$COACH" '{"rental_item_id":1,"fit_status":"issue","note":"学员控制不住板"}'; echo

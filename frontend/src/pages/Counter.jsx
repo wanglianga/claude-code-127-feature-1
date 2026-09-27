@@ -6,12 +6,13 @@ import RentalDetail from '../components/RentalDetail.jsx'
 export default function CounterPage({ page, go }) {
   if (page === 'checkout') return <Checkout />
   if (page === 'exchanges') return <Exchanges />
+  if (page === 'refits') return <Refits />
   if (page === 'returns') return <Returns />
   return <QueueBoard />
 }
 
 const QMETA = [
-  ['pickup', '取具队列', 'P'], ['exchange', '换码队列', 'X'],
+  ['pickup', '取具队列', 'P'], ['exchange', '换码队列', 'X'], ['refit', '课前重配', 'R'],
   ['return_day', '日场归还', 'D'], ['return_night', '夜场归还', 'N'], ['damage', '损坏处理', 'M']
 ]
 
@@ -234,6 +235,85 @@ function ExchangeActions({ onProcess }) {
       {rejecting && <div className="inline" style={{ marginTop: 6 }}>
         <input placeholder="驳回原因" value={note} onChange={e => setNote(e.target.value)} style={{ width: 200 }} />
         <button className="btn sm danger" onClick={() => onProcess({ approve: false, note })}>确认驳回</button>
+      </div>}
+    </div>
+  )
+}
+
+// ---------- 课前重配处理（教练发起，按库存推荐替换尺码） ----------
+function Refits() {
+  const [list, setList] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const toast = useToast()
+  const load = async () => setList(await api('GET', '/counter/refits/pending'))
+  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t) }, [])
+  return (
+    <div>
+      <h2 style={{ fontSize: 18 }}>课前雪鞋重配</h2>
+      <p className="muted small">教练课前发现初学者雪鞋过松影响安全时发起。系统按游客脚码推荐替换尺码（安全重配免费）；
+        完成时登记实际耗时——若导致课程开始顺延，系统自动调整教练排课并给游客租金补偿，游客端同步可见。</p>
+      {!list ? <Loading /> : list.length === 0 ? <Empty text="当前没有待处理的课前重配" /> : (
+        <div className="grid grid-2">
+          {list.map(t => <RefitCard key={t.refit_id} ticket={t} onDone={load} onOpen={setDetail} />)}
+        </div>
+      )}
+      {detail && <RentalDetail id={detail} onClose={() => setDetail(null)} onChanged={load} />}
+    </div>
+  )
+}
+
+function RefitCard({ ticket, onDone, onOpen }) {
+  const [minutes, setMinutes] = useState('')
+  const [qr, setQr] = useState('')
+  const [showScan, setShowScan] = useState(false)
+  const toast = useToast()
+  const complete = async (body) => {
+    try {
+      const d = await api('POST', `/counter/refits/${ticket.refit_id}/complete`, body)
+      toast(`${d.message}（新尺码 ${d.new_size}，实际 ${d.actual_minutes} 分钟，课程顺延 ${d.delay_minutes} 分钟，补偿 ¥${d.compensate_yuan}）`)
+      onDone()
+    } catch (e) { toast(e.message, 'error') }
+  }
+  const recs = ticket.recommendations || []
+  return (
+    <div className="card">
+      <div className="btn-row"><b>{ticket.ticket_no || '重配'}</b><span className="spacer" style={{ flex: 1 }} />
+        <Badge color="orange">安全重配 · 免费</Badge></div>
+      <div style={{ margin: '6px 0' }}>{ticket.guest_name}（脚码 EU{Number(ticket.foot_eu)}）· {ticket.course_name || '自由滑'}</div>
+      <div className="small muted">教练 {ticket.coach_name} 发起于 {ticket.created_time}
+        {ticket.course_start && <> · 课程 {ticket.course_start} 开始</>}</div>
+      <div className="alert warn" style={{ marginTop: 8 }}>
+        <b>{ticket.old_size} → 建议 {ticket.target_size}</b>
+        <div className="small">原因：{ticket.reason} · 预估耗时 {ticket.est_minutes} 分钟</div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <div className="small" style={{ marginBottom: 4 }}><b>库存推荐</b>（按目标尺码距离排序）：</div>
+        {recs.length === 0 && <div className="alert red small">雪鞋暂无可用库存，请联系管理员补货</div>}
+        {recs.map((m, i) => (
+          <div key={m.model_id} className="btn-row small" style={{ padding: '2px 0' }}>
+            <span>{i === 0 ? '⭐ ' : ''}{m.size_label}</span>
+            <span className="muted mono">{m.qr_code}</span>
+            <span className="spacer" style={{ flex: 1 }} />
+            <Badge color={m.stock > 1 ? 'green' : 'orange'}>库存 {m.stock}</Badge>
+          </div>
+        ))}
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <Field label="实际耗时（分钟，留空按实际计时）">
+          <input type="number" min="1" max="120" value={minutes} onChange={e => setMinutes(e.target.value)} placeholder={`约 ${ticket.est_minutes}`} />
+        </Field>
+      </div>
+      <div className="btn-row">
+        <button className="btn sm" disabled={recs.length === 0}
+          onClick={() => complete({ actual_minutes: Number(minutes) || 0 })}>按推荐自动换发</button>
+        <button className="btn sm ghost" onClick={() => setShowScan(v => !v)}>扫码指定新雪鞋</button>
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="btn sm ghost" onClick={() => onOpen(ticket.rental_id)}>查看单据</button>
+      </div>
+      {showScan && <div className="inline" style={{ marginTop: 6 }}>
+        <input placeholder="新雪鞋二维码 QR-BOOT..." value={qr} onChange={e => setQr(e.target.value)} style={{ width: 220 }} />
+        <button className="btn sm" disabled={!qr.trim()}
+          onClick={() => complete({ actual_minutes: Number(minutes) || 0, new_qr_code: qr.trim() })}>确认换发</button>
       </div>}
     </div>
   )

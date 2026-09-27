@@ -50,6 +50,13 @@ func (s *Server) registerRoutes() {
 	// 教练
 	s.add("GET", "/api/coach/courses", authCoach(s.coachCourses))
 	s.add("POST", "/api/coach/fit-check", authCoach(s.fitCheck))
+	s.add("POST", "/api/coach/refits", authCoach(s.createRefit))
+	s.add("POST", "/api/coach/refits/{id}/reconfirm", authCoach(s.reconfirmRefit))
+	s.add("POST", "/api/coach/refits/{id}/cancel", authCoach(s.cancelRefit))
+
+	// 柜台·课前重配
+	s.add("GET", "/api/counter/refits/pending", authCounter(s.counterRefits))
+	s.add("POST", "/api/counter/refits/{id}/complete", authCounter(s.completeRefit))
 
 	// 维修间
 	s.add("GET", "/api/repair/orders", authRepair(s.repairOrders))

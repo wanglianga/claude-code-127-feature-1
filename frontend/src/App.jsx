@@ -80,7 +80,7 @@ const ROLE_LABEL = {
 
 const NAV = {
   guest: [['rentals', '我的租赁'], ['new', '新建租赁预约'], ['suggest', '尺码建议']],
-  counter: [['queue', '排队叫号大屏'], ['checkout', '扫码出库'], ['exchanges', '换码处理'], ['returns', '归还验损']],
+  counter: [['queue', '排队叫号大屏'], ['checkout', '扫码出库'], ['refits', '课前重配'], ['exchanges', '换码处理'], ['returns', '归还验损']],
   coach: [['courses', '我的课程与课前确认']],
   repair: [['orders', '维修工单'], ['maintenance', '高损耗保养提醒']],
   insurance: [['claims', '理赔处理'], ['policies', '保单查询']],

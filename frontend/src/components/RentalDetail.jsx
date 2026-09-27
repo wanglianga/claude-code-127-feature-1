@@ -52,6 +52,38 @@ export default function RentalDetail({ id, onClose, onChanged, asGuest, canAsses
         </div>
       )}
 
+      {/* 课前尺码重配：调换原因 / 是否收费 / 课程权益影响（游客端同步显示） */}
+      {r.refits?.length > 0 && (
+        <>
+          <h4>课前尺码重配</h4>
+          {r.refits.map(rf => (
+            <div key={rf.id} className={'alert ' + (rf.status === 'confirmed' ? 'info' : 'warn')}>
+              <div className="btn-row" style={{ justifyContent: 'space-between' }}>
+                <b>👟 雪鞋 {rf.old_size} → {rf.new_size || rf.target_size}</b>
+                <Badge color={rf.status === 'confirmed' ? 'green' : rf.status === 'done' ? 'orange' : 'blue'}>
+                  {rf.status === 'requested' ? '柜台处理中' : rf.status === 'done' ? '待教练重新确认' : '✓ 已完成'}
+                </Badge>
+              </div>
+              <div className="small" style={{ margin: '4px 0' }}>
+                调换原因：{rf.reason}（{rf.coach_name || '教练'} 发起 · {rf.created_at}）
+              </div>
+              <div className="small">
+                是否收费：<b className="ok-text">{Number(rf.charge_yuan) === 0 ? '免费（安全重配）' : `¥${rf.charge_yuan}`}</b>
+                {' · '}实际耗时 {rf.actual_minutes ?? rf.est_minutes} 分钟
+                {rf.delay_minutes > 0 && <> · 课程开始顺延 <b>{rf.delay_minutes}</b> 分钟</>}
+                {Number(rf.compensate_yuan) > 0 && <> · 补偿 <b className="ok-text">¥{Number(rf.compensate_yuan).toFixed(0)}</b>（已减免租金）</>}
+              </div>
+              {rf.course_start_at && (
+                <div className="small muted">
+                  课程时间：{rf.course_start_at}{rf.course_new_start_at ? ` → ${rf.course_new_start_at}（顺延，时长不变）` : '（不变）'}
+                </div>
+              )}
+              {rf.rights_impact && <div className="small" style={{ marginTop: 2 }}>课程权益影响：{rf.rights_impact}</div>}
+            </div>
+          ))}
+        </>
+      )}
+
       <h4>雪具清单与建议依据</h4>
       <div className="table-wrap">
         <table>
@@ -170,7 +202,7 @@ function fitBadge(f) {
 }
 function depositLabel(t) {
   return { hold: '冻结押金', deduct_damage: '损坏扣减', deduct_lost: '丢失扣减',
-    deduct_late: '超时扣减', insurance_offset: '保险冲抵返还', refund: '押金退还' }[t] || t
+    deduct_late: '超时扣减', insurance_offset: '保险冲抵返还', compensation: '课程延误补偿', refund: '押金退还' }[t] || t
 }
 function depositColor(t) {
   if (t === 'hold') return ''

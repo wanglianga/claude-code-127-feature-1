@@ -7,7 +7,7 @@ import (
 	"skirental/internal/rules"
 )
 
-// 教练的课程与待确认雪具
+// 教练的课程与待确认雪具（含课前重配进度与课程权益变化同步）
 func (s *Server) coachCourses(w http.ResponseWriter, r *http.Request) {
 	c := currentUser(r)
 	s.listJSON(w, `SELECT COALESCE(json_agg(t ORDER BY t.start_at), '[]') FROM (
@@ -30,7 +30,23 @@ func (s *Server) coachCourses(w http.ResponseWriter, r *http.Request) {
 			))
 			FROM rentals rr JOIN users u ON u.id=rr.guest_id
 			WHERE rr.course_id=co.id AND rr.status IN ('reserved','equipped','return_pending')
-		) AS rentals
+		) AS rentals,
+		(SELECT json_agg(json_build_object(
+			'refit_id', rf.id, 'rental_item_id', rf.rental_item_id,
+			'guest_name', gu.name, 'rental_code', rr.code,
+			'reason', rf.reason, 'old_size', rf.old_size,
+			'target_size', rf.target_size, 'new_size', rf.new_size,
+			'est_minutes', rf.est_minutes, 'actual_minutes', rf.actual_minutes,
+			'delay_minutes', rf.delay_minutes,
+			'compensate_yuan', rf.compensate_yuan, 'charge_yuan', rf.charge_yuan,
+			'rights_impact', rf.rights_impact, 'status', rf.status,
+			'course_start_at', to_char(rf.course_start_at,'YYYY-MM-DD HH24:MI'),
+			'course_new_start_at', to_char(rf.course_new_start_at,'YYYY-MM-DD HH24:MI'),
+			'coach_reconfirm_note', rf.coach_reconfirm_note
+		  ) ORDER BY rf.id DESC) FROM refits rf
+		  JOIN rentals rr ON rr.id=rf.rental_id
+		  JOIN users gu ON gu.id=rf.guest_id
+		  WHERE rf.course_id=co.id AND rf.status <> 'cancelled') AS refits
 		FROM courses co WHERE co.coach_id=$1 AND co.start_at > now() - interval '6 hour'
 	) t`, c.UserID)
 }

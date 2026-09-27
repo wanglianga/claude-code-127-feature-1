@@ -473,7 +473,21 @@ SELECT row_to_json(x) FROM (
 		 WHERE ip.rental_id=r.id LIMIT 1) AS insurance_name,
 		(SELECT json_agg(json_build_object('id', sr.id, 'message', sr.message,
 			'created_at', to_char(sr.created_at,'MM-DD HH24:MI'), 'read', sr.read_at IS NOT NULL)
-		  ORDER BY sr.id DESC) FROM safety_reminders sr WHERE sr.rental_id=r.id) AS safety_reminders
+		  ORDER BY sr.id DESC) FROM safety_reminders sr WHERE sr.rental_id=r.id) AS safety_reminders,
+		(SELECT json_agg(json_build_object(
+			'id', rf.id, 'reason', rf.reason, 'old_size', rf.old_size,
+			'target_size', rf.target_size, 'new_size', rf.new_size,
+			'est_minutes', rf.est_minutes, 'actual_minutes', rf.actual_minutes,
+			'delay_minutes', rf.delay_minutes,
+			'compensate_yuan', rf.compensate_yuan, 'charge_yuan', rf.charge_yuan,
+			'rights_impact', rf.rights_impact, 'status', rf.status,
+			'coach_name', cu.name,
+			'course_start_at', to_char(rf.course_start_at,'YYYY-MM-DD HH24:MI'),
+			'course_new_start_at', to_char(rf.course_new_start_at,'YYYY-MM-DD HH24:MI'),
+			'created_at', to_char(rf.created_at,'MM-DD HH24:MI')
+		  ) ORDER BY rf.id DESC) FROM refits rf
+		  LEFT JOIN users cu ON cu.id=rf.coach_id
+		  WHERE rf.rental_id=r.id AND rf.status <> 'cancelled') AS refits
 	FROM rentals r JOIN users u ON u.id=r.guest_id
 	LEFT JOIN courses co ON co.id=r.course_id
 	WHERE r.id=$1
@@ -610,7 +624,7 @@ func (s *Server) confirmRental(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) nextTicketNo(tx *sql.Tx, qtype string) (string, error) {
 	prefix := map[string]string{
-		"pickup": "P", "exchange": "X", "return_day": "D", "return_night": "N", "damage": "M",
+		"pickup": "P", "exchange": "X", "return_day": "D", "return_night": "N", "damage": "M", "refit": "R",
 	}[qtype]
 	var n int
 	err := tx.QueryRow(`SELECT count(*)+1 FROM queue_tickets
